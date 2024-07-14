@@ -1,0 +1,8 @@
+jax
+jaxopt
+lineax
+optax
+
+numpy
+matplotlib
+seaborn
