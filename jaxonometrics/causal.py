@@ -67,8 +67,8 @@ class IPW(BaseEstimator):
             ps_clip_epsilon: Small constant to clip propensity scores.
         """
         super().__init__()
-        from .mle import Logit # Local import
-        self.logit_model = Logit(optimizer=propensity_optimizer, maxiter=propensity_maxiter)
+        from .mle import LogisticRegression
+        self.logit_model = LogisticRegression(optimizer=propensity_optimizer, maxiter=propensity_maxiter)
         self.ps_clip_epsilon = ps_clip_epsilon
         self.params: Dict[str, Any] = {"ate": None, "propensity_scores": None}
 
@@ -168,11 +168,11 @@ class AIPW(BaseEstimator):
             ps_clip_epsilon: Small constant to clip propensity scores to avoid extreme values.
         """
         super().__init__()
-        from .mle import Logit # Local import for Logit
+        from .mle import LogisticRegression
 
         self.outcome_model_template = outcome_model if outcome_model else LinearRegression()
         # We need two instances of the outcome model, one for T=1 and one for T=0
-        self.propensity_model = propensity_model if propensity_model else Logit()
+        self.propensity_model = propensity_model if propensity_model else LogisticRegression()
 
         self.ps_clip_epsilon = ps_clip_epsilon
         self.params: Dict[str, Any] = {"ate": None, "propensity_scores": None,

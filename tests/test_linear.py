@@ -19,6 +19,6 @@ def test_linear_regression():
     X_with_intercept = jnp.c_[jnp.ones(X.shape[0]), X]
     jax_model = LinearRegression()
     jax_model.fit(X_with_intercept, jnp.array(y))
-    jax_coef = jax_model.params["beta"][1:]
+    jax_coef = jax_model.params["coef"][1:]
 
     assert np.allclose(sklearn_coef, jax_coef, atol=1e-6)

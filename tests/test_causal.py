@@ -6,7 +6,7 @@ from scipy.special import expit # Sigmoid function, same as jax.nn.sigmoid
 
 from jaxonometrics.causal import IPW, AIPW
 from jaxonometrics.linear import LinearRegression
-from jaxonometrics.mle import Logit
+from jaxonometrics.mle import LogisticRegression
 
 # Function to generate synthetic data for causal inference tests
 def generate_causal_data(n_samples=1000, n_features=3, true_ate=2.0, seed=42):
@@ -87,7 +87,7 @@ def test_aipw_ate_estimation(causal_sim_data):
     # Using default LinearRegression for outcome, Logit for propensity
     aipw_estimator = AIPW(
         outcome_model=LinearRegression(solver="lineax"), # Explicitly pass an instance
-        propensity_model=Logit(maxiter=10000) # Explicitly pass an instance
+        propensity_model=LogisticRegression(maxiter=10000) # Explicitly pass an instance
     )
     # X should include intercept for LinearRegression and Logit as currently implemented
     aipw_estimator.fit(X, T, y)
@@ -111,7 +111,7 @@ def test_aipw_with_custom_models(causal_sim_data):
     X, T, y, _, _, _, true_ate = causal_sim_data
 
     # 1. Fit propensity score model
-    ps_model = Logit(maxiter=10000)
+    ps_model = LogisticRegression(maxiter=10000)
     ps_model.fit(X, T) # X includes intercept
 
     # 2. Fit outcome models
@@ -137,7 +137,7 @@ def test_aipw_with_custom_models(causal_sim_data):
 
     aipw_estimator = AIPW(
         outcome_model=LinearRegression(), # It will create new instances and fit
-        propensity_model=Logit(maxiter=10000) # It will create a new instance and fit
+        propensity_model=LogisticRegression(maxiter=10000) # It will create a new instance and fit
     )
     aipw_estimator.fit(X, T, y)
     estimated_ate = aipw_estimator.params["ate"]

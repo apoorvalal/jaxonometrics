@@ -1,4 +1,5 @@
 from typing import Dict, Optional
+from functools import partial
 
 import numpy as np
 import jax # Ensure jax is imported
@@ -9,7 +10,7 @@ from .base import BaseEstimator
 
 
 # Helper function for JIT compilation of vcov calculations
-@jax.jit(static_argnames=['se_type', 'n', 'k']) # Mark se_type, n, and k as static
+@partial(jax.jit, static_argnames=['se_type', 'n', 'k']) # Mark se_type, n, and k as static
 def _calculate_vcov_details(
     coef: jnp.ndarray, X: jnp.ndarray, y: jnp.ndarray, se_type: str, n: int, k: int
 ):
