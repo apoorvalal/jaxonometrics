@@ -68,7 +68,7 @@ def causal_sim_data():
 def test_ipw_ate_estimation(causal_sim_data):
     X, T, y, _, _, _, true_ate = causal_sim_data
 
-    ipw_estimator = IPW(logit_maxiter=10000)
+    ipw_estimator = IPW(propensity_maxiter=10000) # Changed logit_maxiter to propensity_maxiter
     # The X passed to IPW should not have an intercept if Logit adds one,
     # or Logit should be told not to add one. Our Logit currently assumes X has intercept.
     ipw_estimator.fit(X, T, y)

@@ -1,6 +1,7 @@
 from typing import Dict, Optional, Any
 
 import jax # Ensure jax is imported
+import optax # Added for type hint
 import jax.numpy as jnp
 from jaxopt import LBFGS
 
@@ -54,19 +55,21 @@ class IPW(BaseEstimator):
     This implementation uses Logistic Regression for propensity score estimation.
     """
 
-    def __init__(self, logit_optimizer: Optional[Any] = None, logit_maxiter: int = 5000):
+    def __init__(self, propensity_optimizer: Optional[optax.GradientTransformation] = None,
+                 propensity_maxiter: int = 5000, ps_clip_epsilon: float = 1e-6):
         """
         Initialize the IPW estimator.
 
         Args:
-            logit_optimizer: Optional jaxopt optimizer for the Logit model.
-            logit_maxiter: Maximum iterations for the Logit model optimization.
+            propensity_optimizer: Optional Optax optimizer for the Logit propensity score model.
+                                  Defaults to optax.adam(1e-3) if None.
+            propensity_maxiter: Maximum iterations for the Logit model optimization.
+            ps_clip_epsilon: Small constant to clip propensity scores.
         """
         super().__init__()
-        # Import Logit here to avoid circular dependency issues at module load time
-        # if mle.py also imported from causal.py (though it doesn't currently)
-        from .mle import Logit
-        self.logit_model = Logit(optimizer=logit_optimizer, maxiter=logit_maxiter)
+        from .mle import Logit # Local import
+        self.logit_model = Logit(optimizer=propensity_optimizer, maxiter=propensity_maxiter)
+        self.ps_clip_epsilon = ps_clip_epsilon
         self.params: Dict[str, Any] = {"ate": None, "propensity_scores": None}
 
 
@@ -93,9 +96,8 @@ class IPW(BaseEstimator):
         self.logit_model.fit(X, T_jax)
         propensity_scores = self.logit_model.predict_proba(X)
 
-        # Clip propensity scores to avoid division by zero or extreme weights
-        epsilon = 1e-6 # Small constant to prevent extreme values
-        propensity_scores = jnp.clip(propensity_scores, epsilon, 1 - epsilon)
+        # Clip propensity scores using the instance attribute
+        propensity_scores = jnp.clip(propensity_scores, self.ps_clip_epsilon, 1 - self.ps_clip_epsilon)
 
         self.params["propensity_scores"] = propensity_scores
 
