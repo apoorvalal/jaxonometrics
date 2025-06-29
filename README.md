@@ -1,3 +1,7 @@
-# Econometrics in jax
+# `jaxonometrics`: Econometrics in jax
 
-minimal working examples of standard econometrics tasks implemented with modern optimizers in JAX. 
+Simple library that provides performant implementations of standard econometrics routines in the JAX ecosystem. 
+
+- `jax` arrays everywhere
+- `lineax` for solving linear systems
+- `jaxopt` and `optax` for numerical optimization (Levenberg–Marquardt for NNLS-type problems and SGD for larger problems)
