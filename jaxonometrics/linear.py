@@ -9,11 +9,15 @@ from .base import BaseEstimator
 
 
 # Helper function for JIT compilation of vcov calculations
-@jax.jit
+@jax.jit(static_argnames=['se_type', 'n', 'k']) # Mark se_type, n, and k as static
 def _calculate_vcov_details(
     coef: jnp.ndarray, X: jnp.ndarray, y: jnp.ndarray, se_type: str, n: int, k: int
 ):
     """Helper function to compute SEs, designed to be JIT compiled."""
+    # n and k are also marked static because they are used in calculations
+    # that might affect array shapes or intermediate computations in ways
+    # JAX prefers to know at compile time (e.g., n / (n - k)).
+    # While JAX can often trace through these, being explicit can be safer.
     ε = y - X @ coef
     if se_type == "HC1":
         M = jnp.einsum("ij,i,ik->jk", X, ε**2, X)
