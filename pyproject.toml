@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jaxonometrics"
+version = "0.0.1"
+dependencies = [
+  "numpy",
+  "jax",
+  "jaxlib",
+  "jaxopt",
+  "lineax",
+  "optax",
+  "formulaic",
+  "narwhals",
+]
+requires-python = ">=3.8"
+authors = [
+  {name = "Apoorva Lal", email = "lal.apoorva@gmail.com"},
+]
+description = "Econometrics in JAX."
+readme = "README.md"
+license = "MIT"
+keywords = ["econometrics", "jax", "machine learning"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python"
+]
+
+[project.urls]
+Repository = "https://github.com/py-econometrics/jaxonometrics"
+
