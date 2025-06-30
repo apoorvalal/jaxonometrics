@@ -1,11 +1,12 @@
 from typing import Dict, Optional, Any
 
-import jax # Ensure jax is imported
-import optax # Added for type hint
+import jax  # Ensure jax is imported
+import optax  # Added for type hint
 import jax.numpy as jnp
 from jaxopt import LBFGS
 
 from .base import BaseEstimator
+from .linear import LinearRegression  # For default outcome model in AIPW
 
 
 class EntropyBalancing(BaseEstimator):
@@ -55,8 +56,12 @@ class IPW(BaseEstimator):
     This implementation uses Logistic Regression for propensity score estimation.
     """
 
-    def __init__(self, propensity_optimizer: Optional[optax.GradientTransformation] = None,
-                 propensity_maxiter: int = 5000, ps_clip_epsilon: float = 1e-6):
+    def __init__(
+        self,
+        propensity_optimizer: Optional[optax.GradientTransformation] = None,
+        propensity_maxiter: int = 5000,
+        ps_clip_epsilon: float = 1e-6,
+    ):
         """
         Initialize the IPW estimator.
 
@@ -68,12 +73,19 @@ class IPW(BaseEstimator):
         """
         super().__init__()
         from .mle import LogisticRegression
-        self.logit_model = LogisticRegression(optimizer=propensity_optimizer, maxiter=propensity_maxiter)
+
+        self.logit_model = LogisticRegression(
+            optimizer=propensity_optimizer, maxiter=propensity_maxiter
+        )
         self.ps_clip_epsilon = ps_clip_epsilon
         self.params: Dict[str, Any] = {"ate": None, "propensity_scores": None}
 
-
-    def fit(self, X: jnp.ndarray, T: jnp.ndarray, y: jnp.ndarray) -> "IPW":
+    def fit(
+        self,
+        X: jnp.ndarray,
+        W: jnp.ndarray,
+        y: jnp.ndarray,
+    ) -> "IPW":
         """
         Estimate the Average Treatment Effect (ATE) using IPW.
 
@@ -87,24 +99,26 @@ class IPW(BaseEstimator):
             The fitted estimator with ATE and propensity scores.
         """
         # Ensure T is jnp.ndarray for Logit model
-        if not isinstance(T, jnp.ndarray):
-            T_jax = jnp.array(T)
+        if not isinstance(W, jnp.ndarray):
+            W_jax = jnp.array(W)
         else:
-            T_jax = T
+            W_jax = W
 
         # 1. Estimate propensity scores P(T=1|X) using Logit
-        self.logit_model.fit(X, T_jax)
+        self.logit_model.fit(X, W_jax)
         propensity_scores = self.logit_model.predict_proba(X)
 
         # Clip propensity scores using the instance attribute
-        propensity_scores = jnp.clip(propensity_scores, self.ps_clip_epsilon, 1 - self.ps_clip_epsilon)
+        propensity_scores = jnp.clip(
+            propensity_scores, self.ps_clip_epsilon, 1 - self.ps_clip_epsilon
+        )
 
         self.params["propensity_scores"] = propensity_scores
 
         # 2. Calculate IPW weights
         # Weight for treated: 1 / p_score
         # Weight for control: 1 / (1 - p_score)
-        weights = T_jax / propensity_scores + (1 - T_jax) / (1 - propensity_scores)
+        weights = W_jax / propensity_scores + (1 - W_jax) / (1 - propensity_scores)
 
         # 3. Estimate ATE: E[Y(1)] - E[Y(0)]
         # E[Y(1)] = sum(T_i * y_i / p_i) / sum(T_i / p_i)
@@ -120,8 +134,8 @@ class IPW(BaseEstimator):
         # This can also be seen as E[ (T - e)Y / (e(1-e)) ]
         # However, the difference of means of weighted outcomes is more standard:
 
-        mean_y1 = jnp.sum(T_jax * y * weights) / jnp.sum(T_jax * weights)
-        mean_y0 = jnp.sum((1 - T_jax) * y * weights) / jnp.sum((1 - T_jax) * weights)
+        mean_y1 = jnp.sum(W_jax * y * weights) / jnp.sum(W_jax * weights)
+        mean_y0 = jnp.sum((1 - W_jax) * y * weights) / jnp.sum((1 - W_jax) * weights)
 
         # The above is equivalent to:
         # mean_y1 = jnp.sum( (T_jax * y) / propensity_scores ) / jnp.sum( T_jax / propensity_scores )
@@ -133,17 +147,23 @@ class IPW(BaseEstimator):
         return self
 
     def summary(self) -> None:
-        super().summary() # Calls BaseEstimator summary
+        super().summary()  # Calls BaseEstimator summary
         if self.params and "ate" in self.params and self.params["ate"] is not None:
             print(f"  Estimated ATE: {self.params['ate']:.4f}")
-        if self.params and "propensity_scores" in self.params and self.params["propensity_scores"] is not None:
-            print(f"  Propensity scores min: {jnp.min(self.params['propensity_scores']):.4f}, max: {jnp.max(self.params['propensity_scores']):.4f}")
+        if (
+            self.params
+            and "propensity_scores" in self.params
+            and self.params["propensity_scores"] is not None
+        ):
+            print(
+                f"  Propensity scores min: {jnp.min(self.params['propensity_scores']):.4f}, max: {jnp.max(self.params['propensity_scores']):.4f}"
+            )
+
 
 # Need to add `Any` to imports for type hinting
 # from typing import Dict, Optional, Any
 # Need to add this at the top of causal.py
 
-from .linear import LinearRegression # For default outcome model in AIPW
 
 class AIPW(BaseEstimator):
     """
@@ -151,10 +171,12 @@ class AIPW(BaseEstimator):
     Also known as doubly robust estimator.
     """
 
-    def __init__(self,
-                 outcome_model: Optional[BaseEstimator] = None,
-                 propensity_model: Optional[Any] = None, # Should be a Logit instance or similar
-                 ps_clip_epsilon: float = 1e-6):
+    def __init__(
+        self,
+        outcome_model: Optional[BaseEstimator] = None,
+        propensity_model: Optional[Any] = None,  # Should be a Logit instance or similar
+        ps_clip_epsilon: float = 1e-6,
+    ):
         """
         Initialize the AIPW estimator.
 
@@ -170,15 +192,28 @@ class AIPW(BaseEstimator):
         super().__init__()
         from .mle import LogisticRegression
 
-        self.outcome_model_template = outcome_model if outcome_model else LinearRegression()
+        self.outcome_model_template = (
+            outcome_model if outcome_model else LinearRegression()
+        )
         # We need two instances of the outcome model, one for T=1 and one for T=0
-        self.propensity_model = propensity_model if propensity_model else LogisticRegression()
+        self.propensity_model = (
+            propensity_model if propensity_model else LogisticRegression()
+        )
 
         self.ps_clip_epsilon = ps_clip_epsilon
-        self.params: Dict[str, Any] = {"ate": None, "propensity_scores": None,
-                                       "mu0_params": None, "mu1_params": None}
+        self.params: Dict[str, Any] = {
+            "ate": None,
+            "propensity_scores": None,
+            "mu0_params": None,
+            "mu1_params": None,
+        }
 
-    def fit(self, X: jnp.ndarray, T: jnp.ndarray, y: jnp.ndarray) -> "AIPW":
+    def fit(
+        self,
+        X: jnp.ndarray,
+        W: jnp.ndarray,
+        y: jnp.ndarray,
+    ) -> "AIPW":
         """
         Estimate the Average Treatment Effect (ATE) using AIPW.
 
@@ -191,58 +226,67 @@ class AIPW(BaseEstimator):
         Returns:
             The fitted estimator with ATE.
         """
-        if not isinstance(T, jnp.ndarray): T_jax = jnp.array(T)
-        else: T_jax = T
-        if not isinstance(y, jnp.ndarray): y_jax = jnp.array(y)
-        else: y_jax = y
-        if not isinstance(X, jnp.ndarray): X_jax = jnp.array(X)
-        else: X_jax = X
+        if not isinstance(W, jnp.ndarray):
+            W_jax = jnp.array(W)
+        else:
+            W_jax = W
+        if not isinstance(y, jnp.ndarray):
+            y_jax = jnp.array(y)
+        else:
+            y_jax = y
+        if not isinstance(X, jnp.ndarray):
+            X_jax = jnp.array(X)
+        else:
+            X_jax = X
 
         n_samples = X_jax.shape[0]
 
         # 1. Estimate propensity scores P(T=1|X) = e(X)
-        self.propensity_model.fit(X_jax, T_jax)
+        self.propensity_model.fit(X_jax, W_jax)
         propensity_scores = self.propensity_model.predict_proba(X_jax)
-        propensity_scores = jnp.clip(propensity_scores, self.ps_clip_epsilon, 1 - self.ps_clip_epsilon)
+        propensity_scores = jnp.clip(
+            propensity_scores, self.ps_clip_epsilon, 1 - self.ps_clip_epsilon
+        )
         self.params["propensity_scores"] = propensity_scores
 
         # 2. Estimate outcome models E[Y|X, T=1] = μ_1(X) and E[Y|X, T=0] = μ_0(X)
         # Need to handle potential issues if one group has no samples (though unlikely with real data)
-        X_treated = X_jax[T_jax == 1]
-        y_treated = y_jax[T_jax == 1]
-        X_control = X_jax[T_jax == 0]
-        y_control = y_jax[T_jax == 0]
+        X_treated = X_jax[W_jax == 1]
+        y_treated = y_jax[W_jax == 1]
+        X_control = X_jax[W_jax == 0]
+        y_control = y_jax[W_jax == 0]
 
         # Create fresh instances of the outcome model for fitting
         # This assumes the outcome_model_template can be re-used (e.g. by creating a new instance or being stateless after fit)
         # For sklearn-like models, this means creating new instances.
         # For our JAX models, they are re-fitted.
 
-        model1 = self.outcome_model_template.__class__() # Create a new instance of the same type
+        model1 = (
+            self.outcome_model_template.__class__()
+        )  # Create a new instance of the same type
         if X_treated.shape[0] > 0:
             model1.fit(X_treated, y_treated)
             mu1_X = model1.predict(X_jax)
             self.params["mu1_params"] = model1.params
-        else: # Should not happen in typical scenarios
+        else:  # Should not happen in typical scenarios
             mu1_X = jnp.zeros(n_samples)
             self.params["mu1_params"] = None
 
-        model0 = self.outcome_model_template.__class__() # Create a new instance
+        model0 = self.outcome_model_template.__class__()  # Create a new instance
         if X_control.shape[0] > 0:
             model0.fit(X_control, y_control)
             mu0_X = model0.predict(X_jax)
             self.params["mu0_params"] = model0.params
-        else: # Should not happen
+        else:  # Should not happen
             mu0_X = jnp.zeros(n_samples)
             self.params["mu0_params"] = None
-
 
         # 3. Calculate AIPW estimator components
         # ψ_i = μ_1(X_i) - μ_0(X_i) + T_i/e(X_i) * (Y_i - μ_1(X_i)) - (1-T_i)/(1-e(X_i)) * (Y_i - μ_0(X_i))
 
         term1 = mu1_X - mu0_X
-        term2 = (T_jax / propensity_scores) * (y_jax - mu1_X)
-        term3 = ((1 - T_jax) / (1 - propensity_scores)) * (y_jax - mu0_X)
+        term2 = (W_jax / propensity_scores) * (y_jax - mu1_X)
+        term3 = ((1 - W_jax) / (1 - propensity_scores)) * (y_jax - mu0_X)
 
         psi_i = term1 + term2 - term3
 
@@ -255,6 +299,12 @@ class AIPW(BaseEstimator):
         super().summary()
         if self.params and "ate" in self.params and self.params["ate"] is not None:
             print(f"  Estimated ATE (AIPW): {self.params['ate']:.4f}")
-        if self.params and "propensity_scores" in self.params and self.params["propensity_scores"] is not None:
-            print(f"  Propensity scores min: {jnp.min(self.params['propensity_scores']):.4f}, max: {jnp.max(self.params['propensity_scores']):.4f}")
+        if (
+            self.params
+            and "propensity_scores" in self.params
+            and self.params["propensity_scores"] is not None
+        ):
+            print(
+                f"  Propensity scores min: {jnp.min(self.params['propensity_scores']):.4f}, max: {jnp.max(self.params['propensity_scores']):.4f}"
+            )
         # Could add info about outcome model parameters if desired
