@@ -1,11 +1,34 @@
 from typing import Dict, Optional
+from functools import partial
 
 import numpy as np
-
+import jax # Ensure jax is imported
 import jax.numpy as jnp
 import lineax as lx
 
 from .base import BaseEstimator
+
+
+# Helper function for JIT compilation of vcov calculations
+@partial(jax.jit, static_argnames=['se_type', 'n', 'k']) # Mark se_type, n, and k as static
+def _calculate_vcov_details(
+    coef: jnp.ndarray, X: jnp.ndarray, y: jnp.ndarray, se_type: str, n: int, k: int
+):
+    """Helper function to compute SEs, designed to be JIT compiled."""
+    # n and k are also marked static because they are used in calculations
+    # that might affect array shapes or intermediate computations in ways
+    # JAX prefers to know at compile time (e.g., n / (n - k)).
+    # While JAX can often trace through these, being explicit can be safer.
+    ε = y - X @ coef
+    if se_type == "HC1":
+        M = jnp.einsum("ij,i,ik->jk", X, ε**2, X)
+        XtX_inv = jnp.linalg.inv(X.T @ X)
+        Σ = XtX_inv @ M @ XtX_inv
+        return jnp.sqrt((n / (n - k)) * jnp.diag(Σ))
+    elif se_type == "classical":
+        XtX_inv = jnp.linalg.inv(X.T @ X)
+        return jnp.sqrt(jnp.diag(XtX_inv) * jnp.var(ε, ddof=k))
+    return None # Should not be reached if se_type is valid
 
 
 class LinearRegression(BaseEstimator):
@@ -48,12 +71,6 @@ class LinearRegression(BaseEstimator):
                 operator=lx.MatrixLinearOperator(X),
                 vector=y,
                 solver=lx.AutoLinearSolver(well_posed=None),
-                # per lineax docs, passing well_posed None is remarkably general:
-                # If the operator is non-square, then use lineax.QR. (Most likely case)
-                # If the operator is diagonal, then use lineax.Diagonal.
-                # If the operator is tridiagonal, then use lineax.Tridiagonal.
-                # If the operator is triangular, then use lineax.Triangular.
-                # If the matrix is positive or negative (semi-)definite, then use lineax.Cholesky.
             )
             self.params = {"coef": sol.value}
 
@@ -61,16 +78,16 @@ class LinearRegression(BaseEstimator):
             sol = jnp.linalg.lstsq(X, y)
             self.params = {"coef": sol[0]}
         elif self.solver == "numpy":  # for completeness
-            X, y = np.array(X), np.array(y)
-            sol = np.linalg.lstsq(X, y, rcond=None)
-            self.params = {"coef": jnp.array(sol[0])}
+            X_np, y_np = np.array(X), np.array(y) # Convert to numpy arrays for numpy solver
+            sol = np.linalg.lstsq(X_np, y_np, rcond=None)
+            self.params = {"coef": jnp.array(sol[0])} # Convert back to jax array
 
         if se:
             self._vcov(
                 y=y,
                 X=X,
-                se=se,
-            )  # set standard errors in params
+                se_type=se, # Renamed to avoid conflict with self.se if it existed
+            )
         return self
 
     def predict(self, X: jnp.ndarray) -> jnp.ndarray:
@@ -82,15 +99,14 @@ class LinearRegression(BaseEstimator):
         self,
         y: jnp.ndarray,
         X: jnp.ndarray,
-        se: str = "HC1",
+        se_type: str = "HC1", # Renamed from 'se'
     ) -> None:
         n, k = X.shape
-        ε = y - X @ self.params["coef"]
-        if se == "HC1":
-            M = jnp.einsum("ij,i,ik->jk", X, ε**2, X)  # yer a wizard harry
-            XtX = jnp.linalg.inv(X.T @ X)
-            Σ = XtX @ M @ XtX
-            self.params["se"] = jnp.sqrt((n / (n - k)) * jnp.diag(Σ))
-        elif se == "classical":
-            XtX_inv = jnp.linalg.inv(X.T @ X)
-            self.params["se"] = jnp.sqrt(jnp.diag(XtX_inv) * jnp.var(ε, ddof=k))
+        if self.params and "coef" in self.params:
+            coef = self.params["coef"]
+            se_values = _calculate_vcov_details(coef, X, y, se_type, n, k)
+            if se_values is not None:
+                self.params["se"] = se_values
+        else:
+            # This case should ideally not be reached if fit() is called first.
+            print("Coefficients not available for SE calculation.")
